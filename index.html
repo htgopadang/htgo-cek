@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cek Keaslian Kuitansi – HTGO Padang</title>
+<style>
+  :root { --navy:#1F2937; --kuning:#FFC80A; --abu:#6B7280; --hijau:#15803D; --merah:#B91C1C; }
+  * { box-sizing: border-box; }
+  body { font-family: Arial, Helvetica, sans-serif; margin: 0; background: #F3F4F6; color: #111827; }
+  .top { background: var(--navy); color: #fff; padding: 18px 20px; border-bottom: 4px solid var(--kuning); }
+  .top b { font-size: 18px; letter-spacing: .02em; }
+  .top div { font-size: 12px; color: #D1D5DB; margin-top: 2px; }
+  .wrap { max-width: 460px; margin: 0 auto; padding: 16px; }
+  .card { background: #fff; border-radius: 10px; padding: 16px; margin-bottom: 16px; border-top: 5px solid #9CA3AF; }
+  .ok { border-top-color: var(--hijau); } .no { border-top-color: var(--merah); }
+  .ttl { font-size: 17px; font-weight: bold; margin-bottom: 10px; }
+  .ok .ttl { color: var(--hijau); } .no .ttl { color: var(--merah); }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  td { padding: 7px 0; border-bottom: 1px solid #F3F4F6; vertical-align: top; }
+  td:first-child { color: var(--abu); width: 40%; }
+  .small { font-size: 12px; color: var(--abu); }
+  .warn { background: #FEF3C7; color: #92400E; padding: 8px; border-radius: 6px; font-size: 13px; }
+  label { font-size: 13px; color: #374151; display: block; margin: 10px 0 4px; }
+  input { width: 100%; padding: 11px; border: 1px solid #D1D5DB; border-radius: 6px; font-size: 15px; }
+  button { margin-top: 14px; width: 100%; padding: 12px; border: 0; border-radius: 6px; background: var(--navy); color: #fff; font-size: 15px; }
+  button:disabled { background: #9CA3AF; }
+  .load { text-align: center; color: var(--abu); padding: 18px 0; }
+  a { color: #1D4ED8; }
+</style>
+</head>
+<body>
+<div class="top"><b>HTGO PADANG</b><div>Cek Keaslian Kuitansi &amp; Nota</div></div>
+<div class="wrap">
+  <div id="hasil"></div>
+  <div class="card">
+    <div class="ttl" id="judulForm" style="color:#111827">Cek keaslian dokumen</div>
+    <form id="form">
+      <label for="no">Nomor kuitansi</label>
+      <input id="no" placeholder="contoh: KWT-2026-047-L" autocomplete="off">
+      <p class="small" style="margin:6px 0 0">Isi <b>No. Kuitansi</b> yang tertulis di nota atau kuitansi (KWT-...), atau No. Invoice (HTGO-...).</p>
+      <label for="nominal">Total nilai sewa (Rp)</label>
+      <input id="nominal" inputmode="numeric" placeholder="contoh: 255000" autocomplete="off">
+      <p class="small" style="margin:6px 0 0">Lihat <b>Total nilai sewa</b> di kuitansi, atau <b>Total diterima</b> di nota.</p>
+      <button id="btn" type="submit">Cek</button>
+    </form>
+  </div>
+  <p class="small" style="text-align:center">Pertanyaan: WA <a href="https://wa.me/62895352627700">0895-3526-27700</a></p>
+</div>
+
+<script>
+  // Link web app Apps Script. Halaman ini hanya meminta data, tidak menyimpan apa pun.
+  const API = 'https://script.google.com/macros/s/AKfycbzYBBL37YkibfEe3INvefDVe2GSbxhdAfxJiWAPRLqkBh89KCPSMp01sQ0WKgT8diWS/exec';
+
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  async function cek(params) {
+    $('hasil').innerHTML = '<div class="card load">Memeriksa…</div>';
+    $('btn').disabled = true;
+    try {
+      const res = await fetch(API + '?format=json&' + new URLSearchParams(params));
+      tampil(await res.json());
+    } catch (e) {
+      tampil({ ok: false, judul: 'Tidak dapat terhubung', pesan: 'Periksa koneksi internet lalu coba lagi, atau hubungi WA 0895-3526-27700.' });
+    }
+    $('btn').disabled = false;
+  }
+
+  function tampil(h) {
+    if (!h || (!h.ok && !h.judul)) { $('hasil').innerHTML = ''; return; }
+    let html = '<div class="card ' + (h.ok ? 'ok' : 'no') + '"><div class="ttl">' + (h.ok ? '&#10003; ' : '&#10007; ') + esc(h.judul) + '</div>';
+    if (h.ok) {
+      html += '<table>' + h.data.map(d => '<tr><td>' + esc(d[0]) + '</td><td>' + esc(d[1]) + '</td></tr>').join('') + '</table>';
+      if (h.catatan) html += '<p class="warn">' + esc(h.catatan) + '</p>';
+      html += '<p class="small">Pastikan data di atas sama dengan dokumen yang Anda terima.</p>';
+    } else {
+      html += '<p>' + esc(h.pesan) + '</p>';
+    }
+    $('hasil').innerHTML = html + '</div>';
+    $('judulForm').textContent = 'Cek dokumen lain';
+  }
+
+  $('form').addEventListener('submit', e => {
+    e.preventDefault();
+    const no = $('no').value.trim(), nominal = $('nominal').value.replace(/\D/g, '');
+    if (!no || !nominal) { tampil({ ok: false, judul: 'Data belum lengkap', pesan: 'Isi nomor kuitansi dan total nilai sewa.' }); return; }
+    history.replaceState(null, '', '?no=' + encodeURIComponent(no) + '&nominal=' + nominal);
+    cek({ no: no, nominal: nominal });
+  });
+
+  const q = new URLSearchParams(location.search);
+  if (q.get('k')) cek({ k: q.get('k') });
+  else if (q.get('no')) { $('no').value = q.get('no'); $('nominal').value = q.get('nominal') || ''; cek({ no: q.get('no'), nominal: q.get('nominal') || '' }); }
+</script>
+</body>
+</html>
