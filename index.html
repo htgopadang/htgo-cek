@@ -55,7 +55,7 @@
   const $ = id => document.getElementById(id);
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-  // Mengambil data lewat JSONP: tidak terpengaruh CORS maupun login akun Google di browser.
+  // Cara 2 (cadangan): JSONP.
   function ambil(params) {
     return new Promise((resolve, reject) => {
       const cb = 'htgo_' + Date.now() + '_' + Math.floor(Math.random() * 1e6);
@@ -69,11 +69,20 @@
     });
   }
 
+  // Cara 1: fetch tanpa cookie (tidak terpengaruh akun Google yang login di HP).
+  async function ambilFetch(params) {
+    const res = await fetch(API + '?format=json&' + new URLSearchParams(params), { credentials: 'omit', cache: 'no-store' });
+    return await res.json();
+  }
+
   async function cek(params) {
     $('hasil').innerHTML = '<div class="card load">Memeriksa…</div>';
     $('btn').disabled = true;
     try {
-      tampil(await ambil(params));
+      let data;
+      try { data = await ambilFetch(params); }      // cara utama
+      catch (e1) { data = await ambil(params); }    // cadangan: JSONP
+      tampil(data);
     } catch (e) {
       tampil({ ok: false, judul: 'Tidak dapat terhubung', pesan: 'Sistem pengecekan sedang tidak dapat dihubungi. Coba lagi beberapa saat, atau hubungi WA 0895-3526-27700.' });
     }
