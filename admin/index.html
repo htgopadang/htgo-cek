@@ -141,9 +141,24 @@
 
   <!-- DAFTAR -->
   <div id="vDaftar" class="hide">
+    <div id="agenda"></div>
     <input id="cari" placeholder="Cari nama / event / nomor" oninput="renderDaftar()" style="margin-bottom:10px">
     <div id="daftar"><div class="load">Memuat…</div></div>
     <button class="btn sec" onclick="muatDaftar()">Muat ulang</button>
+  </div>
+
+  <!-- LAPORAN -->
+  <div id="vLaporan" class="hide">
+    <div class="card">
+      <h3>Laporan</h3>
+      <div class="grid">
+        <div><label>Periode</label><select id="lJenis" onchange="aturPeriode()"><option value="bulan">Bulanan</option><option value="kuartal">Kuartalan</option><option value="tahun">Tahunan</option></select></div>
+        <div><label>Tahun</label><select id="lTahun"></select></div>
+      </div>
+      <div id="lKeBox"><label id="lKeLabel">Bulan</label><select id="lKe"></select></div>
+      <button class="btn pri" onclick="lihatLaporan(this)">Lihat ringkasan</button>
+    </div>
+    <div id="lapHasil"></div>
   </div>
 
   <!-- DETAIL -->
@@ -155,6 +170,7 @@
 <nav id="nav" class="hide">
   <button id="nBaru" onclick="buka('vBaru')">+ Order baru</button>
   <button id="nDaftar" onclick="buka('vDaftar')">Daftar order</button>
+  <button id="nLaporan" onclick="buka('vLaporan')">Laporan</button>
 </nav>
 
 <script>
@@ -199,17 +215,20 @@
       F = r.form; ORDERS = r.orders;
       $('nav').classList.remove('hide');
       kosongkan(true);
+      aturPeriode(true);
       buka('vDaftar');
+      muatAgenda();
     } catch (e) {
       if (/kode admin/i.test(e.message)) { localStorage.removeItem('htgo_key'); KEY = ''; }
       tampilkan('vLogin'); pesan(e.message, 'err');
     }
   }
   function masuk() { KEY = v('kode').trim(); localStorage.setItem('htgo_key', KEY); pesan(''); mulai(); }
-  function tampilkan(id) { ['vLogin', 'vBaru', 'vDaftar', 'vDetail'].forEach(x => $(x).classList.toggle('hide', x !== id)); }
+  function tampilkan(id) { ['vLogin', 'vBaru', 'vDaftar', 'vDetail', 'vLaporan'].forEach(x => $(x).classList.toggle('hide', x !== id)); }
   function buka(id) {
     tampilkan(id); pesan('');
-    $('nBaru').classList.toggle('on', id === 'vBaru'); $('nDaftar').classList.toggle('on', id !== 'vBaru');
+    $('nBaru').classList.toggle('on', id === 'vBaru'); $('nLaporan').classList.toggle('on', id === 'vLaporan');
+    $('nDaftar').classList.toggle('on', id === 'vDaftar' || id === 'vDetail');
     if (id === 'vDaftar') renderDaftar();
     window.scrollTo(0, 0);
   }
@@ -333,11 +352,41 @@
   }
 
   function dokLink(nama, url) {
-    const id = (String(url).match(/[-\w]{25,}/) || [''])[0];
-    return '<span class="dok"><a href="' + url + '" target="_blank">' + esc(nama) + '</a>' +
-      (id ? '<a href="https://drive.google.com/uc?export=download&id=' + id + '">Unduh</a>' : '') +
-      '<a href="#" onclick="salin(\'' + url + '\'); return false;">Salin link</a></span>';
+    return '<div class="dok" style="margin:6px 0"><b style="font-size:14px">' + esc(nama) + '</b><br>' +
+      '<a href="#" style="font-weight:bold" onclick="bagikan(this, \'' + url + '\', \'' + esc(nama).replace(/'/g, '') + '\'); return false;">Kirim PDF</a>' +
+      '<a href="' + url + '" target="_blank">Buka</a>' +
+      '<a href="#" onclick="salin(\'' + url + '\'); return false;">Salin link</a></div>';
   }
+
+  // Bagikan PDF sebagai file (+ pesan) lewat menu Bagikan HP. Ketuk pertama: siapkan file, ketuk kedua: kirim.
+  const BERKAS = {};
+  async function bagikan(el, url, nama) {
+    if (!BERKAS[url]) {
+      const t = el.textContent; el.textContent = 'Menyiapkan…';
+      try {
+        const r = await api('ambilPdfUmum', { url: url });
+        const bin = atob(r.base64), arr = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+        BERKAS[url] = new File([arr], r.nama, { type: 'application/pdf' });
+        el.textContent = 'Kirim sekarang ➜';
+      } catch (e) { el.textContent = t; pesan(e.message, 'err'); }
+      return;
+    }
+    const teks = $('waTeks') ? v('waTeks') : '';
+    const data = { files: [BERKAS[url]], text: teks };
+    if (navigator.canShare && navigator.canShare(data)) {
+      try { await navigator.share(data); el.textContent = 'Terkirim ✓'; }
+      catch (e) { if (e.name !== 'AbortError') pesan('Gagal membuka menu Bagikan: ' + e.message, 'err'); }
+    } else if (navigator.canShare && navigator.canShare({ files: [BERKAS[url]] })) {
+      await navigator.share({ files: [BERKAS[url]] }).catch(() => {});
+      if (teks) salinTeks(teks);
+    } else {
+      const a = document.createElement('a'); a.href = URL.createObjectURL(BERKAS[url]); a.download = BERKAS[url].name; a.click();
+      if (teks) salinTeks(teks);
+      pesan('HP ini tidak mendukung kirim file langsung. PDF sudah diunduh dan pesan disalin; lampirkan manual di WA.', 'warn');
+    }
+  }
+  function salinTeks(t) { (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).catch(() => {}); }
   function salin(t) { navigator.clipboard.writeText(t).then(() => pesan('Link disalin. Tempel di chat WA penyewa.')); }
 
   /* ---------- DAFTAR ---------- */
@@ -422,6 +471,12 @@
       h += '<button class="btn sec" onclick="aksi(\'catatNotaFisik\', null, this)">Catat nota fisik diberikan</button>';
     }
 
+    // pesan WA
+    h += '<div class="card"><h3>Kirim ke penyewa</h3><textarea id="waTeks" style="min-height:200px">Menyiapkan pesan…</textarea>' +
+      '<div class="grid"><button class="btn sec" onclick="salinPesan()">Salin pesan</button>' +
+      '<a class="btn pri" id="waLink" style="text-align:center;text-decoration:none" href="#" onclick="return kirimWa()">Buka WhatsApp</a></div>' +
+      '<p class="hint">Pesan ini ikut terkirim saat kamu menekan <b>Kirim PDF</b> di bagian Dokumen. Bisa diedit dulu.</p></div>';
+
     // sponsorship
     if (SP) h += renderSponsor();
 
@@ -429,6 +484,29 @@
     $('detail').innerHTML = h;
     if (belum || st === 'DP Diterima') aturBayar();
     if (SP && $('editorK')) renderEditorK();
+    muatPesan();
+  }
+
+  let WA = '';
+  async function muatPesan() {
+    const no = DET.no;
+    try {
+      const r = await api('pesanWa', { tanpaLink: true }, no);
+      if (DET.no !== no || !$('waTeks')) return;
+      $('waTeks').value = r.teks; WA = r.wa;
+    } catch (e) { if ($('waTeks')) $('waTeks').value = 'Pesan gagal disiapkan: ' + e.message; }
+  }
+  function salinPesan() {
+    const t = $('waTeks');
+    t.select(); t.setSelectionRange(0, 99999);
+    (navigator.clipboard ? navigator.clipboard.writeText(t.value) : Promise.reject())
+      .then(() => pesan('Pesan disalin. Tempel di chat WA penyewa.'))
+      .catch(() => { document.execCommand('copy'); pesan('Pesan disalin. Tempel di chat WA penyewa.'); });
+  }
+  function kirimWa() {
+    const url = 'https://wa.me/' + (WA || '') + '?text=' + encodeURIComponent(v('waTeks'));
+    window.open(url, '_blank');
+    return false;
   }
 
   function aturBayar() {
@@ -484,6 +562,52 @@
       SP.pilihanTenggat.map(t => '<option value="' + t[0] + '"' + (b.tenggat === t[0] ? ' selected' : '') + '>' + esc(t[1]) + '</option>').join('') + '</select>' +
       (b.tenggat === 'lain' ? '<input style="margin-top:6px" value="' + esc(b.tenggatTeks || '') + '" oninput="EDK[' + i + '].tenggatTeks=this.value">' : '') +
       '</div><div><label>Bukti</label><input value="' + esc(b.bukti || '') + '" oninput="EDK[' + i + '].bukti=this.value"></div></div></div>').join('');
+  }
+
+  async function muatAgenda() {
+    try {
+      const ag = await api('agenda');
+      $('agenda').innerHTML = ag.length ? '<div class="card" style="border-left:4px solid var(--kuning)"><h3>Agenda hari ini</h3>' +
+        ag.map(b => '<b style="font-size:13px">' + esc(b.judul) + '</b><ul style="margin:4px 0 10px;padding-left:18px;font-size:13px">' +
+          b.isi.map(x => '<li>' + esc(x) + '</li>').join('') + '</ul>').join('') + '</div>' : '';
+    } catch (e) { /* abaikan */ }
+  }
+
+  function aturPeriode(awal) {
+    const now = new Date(), j = v('lJenis');
+    if (awal === true) {
+      $('lTahun').innerHTML = [0, 1, 2].map(i => '<option>' + (now.getFullYear() - i) + '</option>').join('');
+    }
+    const bulan = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+    $('lKeBox').classList.toggle('hide', j === 'tahun');
+    $('lKeLabel').textContent = j === 'kuartal' ? 'Kuartal' : 'Bulan';
+    $('lKe').innerHTML = j === 'kuartal'
+      ? ['I (Jan–Mar)', 'II (Apr–Jun)', 'III (Jul–Sep)', 'IV (Okt–Des)'].map((q, i) => '<option value="' + (i + 1) + '"' + (Math.floor(now.getMonth() / 3) === i ? ' selected' : '') + '>Kuartal ' + q + '</option>').join('')
+      : bulan.map((b, i) => '<option value="' + (i + 1) + '"' + (now.getMonth() === i ? ' selected' : '') + '>' + b + '</option>').join('');
+  }
+  function periode() { return { jenis: v('lJenis'), tahun: v('lTahun'), ke: v('lKe') }; }
+  const persen = n => n === null || n === undefined ? '' : ' <span class="hint">(' + (n >= 0 ? '+' : '') + n + '%)</span>';
+
+  async function lihatLaporan(btn) {
+    await jalan(btn, async () => {
+      const r = await api('laporanRingkas', periode());
+      $('lapHasil').innerHTML = '<div class="card"><h3>' + esc(r.label) + '</h3><table>' +
+        '<tr><td>Pendapatan diterima</td><td><b>' + rp(r.pendapatan) + '</b>' + persen(r.perubahan.pendapatan) + '</td></tr>' +
+        '<tr><td>Nilai order</td><td>' + rp(r.nilaiOrder) + '</td></tr>' +
+        '<tr><td>Jumlah order</td><td>' + r.jumlahOrder + persen(r.perubahan.order) + '</td></tr>' +
+        '<tr><td>Unit-hari tersewa</td><td>' + r.unitHari + persen(r.perubahan.unitHari) + '</td></tr>' +
+        '<tr><td>Belum dilunasi</td><td>' + rp(r.totalSisa) + '</td></tr>' +
+        '<tr><td>Nilai sponsorship</td><td>' + rp(r.nilaiSponsor) + '</td></tr></table>' +
+        (r.insight.length ? '<ul style="padding-left:18px;font-size:13px;margin:10px 0 0">' + r.insight.map(x => '<li style="margin-bottom:4px">' + esc(x) + '</li>').join('') + '</ul>' : '') +
+        '<button class="btn pri" onclick="pdfLaporan(this, false)">Buat PDF laporan lengkap</button>' +
+        '<button class="btn sec" onclick="pdfLaporan(this, true)">Buat & kirim PDF ke Telegram</button><div id="lapPdf"></div></div>';
+    });
+  }
+  async function pdfLaporan(btn, tg) {
+    await jalan(btn, async () => {
+      const r = await api('laporanPdf', Object.assign(periode(), { telegram: tg }));
+      $('lapPdf').innerHTML = '<div class="msg ok" style="margin-top:10px">' + esc(r.pesan) + '</div>' + dokLink(r.nama, r.url);
+    });
   }
 
   mulai();
