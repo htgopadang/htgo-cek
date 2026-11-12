@@ -373,6 +373,10 @@
       return;
     }
     const teks = $('waTeks') ? v('waTeks') : '';
+    if (teks) {
+      salinTeks(teks);
+      pesan('Pesan sudah disalin. Di WhatsApp, tekan lama kolom keterangan → Tempel, lalu kirim.', 'warn');
+    }
     const data = { files: [BERKAS[url]], text: teks };
     if (navigator.canShare && navigator.canShare(data)) {
       try { await navigator.share(data); el.textContent = 'Terkirim ✓'; }
@@ -472,10 +476,13 @@
     }
 
     // pesan WA
-    h += '<div class="card"><h3>Kirim ke penyewa</h3><textarea id="waTeks" style="min-height:200px">Menyiapkan pesan…</textarea>' +
-      '<div class="grid"><button class="btn sec" onclick="salinPesan()">Salin pesan</button>' +
-      '<a class="btn pri" id="waLink" style="text-align:center;text-decoration:none" href="#" onclick="return kirimWa()">Buka WhatsApp</a></div>' +
-      '<p class="hint">Pesan ini ikut terkirim saat kamu menekan <b>Kirim PDF</b> di bagian Dokumen. Bisa diedit dulu.</p></div>';
+    h += '<div class="card"><h3>Kirim ke penyewa</h3>' +
+      '<label style="margin-top:0"><input type="checkbox" id="pakaiLink" onchange="gantiVersi()"> Sertakan link PDF di pesan (langsung ke nomor penyewa)</label>' +
+      '<textarea id="waTeks" style="min-height:200px">Menyiapkan pesan…</textarea>' +
+      '<button class="btn sec" onclick="salinPesan()">Salin pesan</button>' +
+      '<div class="grid"><button class="btn pri" onclick="kirimWa(true)">Kirim teks via WA Bisnis</button>' +
+      '<button class="btn sec" onclick="kirimWa(false)">Kirim teks via WA biasa</button></div>' +
+      '<p class="hint">Saat menekan <b>Kirim PDF</b>, pesan ini otomatis disalin. Di WhatsApp, tekan lama kolom keterangan lalu <b>Tempel</b>.</p></div>';
 
     // sponsorship
     if (SP) h += renderSponsor();
@@ -487,14 +494,19 @@
     muatPesan();
   }
 
-  let WA = '';
+  let WA = '', PESAN = { tanpa: '', dengan: '' };
   async function muatPesan() {
     const no = DET.no;
     try {
-      const r = await api('pesanWa', { tanpaLink: true }, no);
+      const [a, b] = await Promise.all([api('pesanWa', { tanpaLink: true }, no), api('pesanWa', null, no)]);
       if (DET.no !== no || !$('waTeks')) return;
-      $('waTeks').value = r.teks; WA = r.wa;
+      PESAN = { tanpa: a.teks, dengan: b.teks }; WA = a.wa;
+      gantiVersi();
     } catch (e) { if ($('waTeks')) $('waTeks').value = 'Pesan gagal disiapkan: ' + e.message; }
+  }
+  function gantiVersi() {
+    if (!PESAN.tanpa) return;
+    $('waTeks').value = $('pakaiLink').checked ? PESAN.dengan : PESAN.tanpa;
   }
   function salinPesan() {
     const t = $('waTeks');
@@ -503,10 +515,17 @@
       .then(() => pesan('Pesan disalin. Tempel di chat WA penyewa.'))
       .catch(() => { document.execCommand('copy'); pesan('Pesan disalin. Tempel di chat WA penyewa.'); });
   }
-  function kirimWa() {
-    const url = 'https://wa.me/' + (WA || '') + '?text=' + encodeURIComponent(v('waTeks'));
-    window.open(url, '_blank');
-    return false;
+  function kirimWa(bisnis) {
+    const teks = encodeURIComponent(v('waTeks'));
+    const android = /android/i.test(navigator.userAgent);
+    if (android) {
+      // Membuka aplikasi tertentu: com.whatsapp.w4b = WhatsApp Business, com.whatsapp = WhatsApp biasa
+      const pkg = bisnis ? 'com.whatsapp.w4b' : 'com.whatsapp';
+      location.href = 'intent://send/?phone=' + (WA || '') + '&text=' + teks + '#Intent;scheme=whatsapp;package=' + pkg +
+        ';S.browser_fallback_url=' + encodeURIComponent('https://wa.me/' + (WA || '') + '?text=' + v('waTeks')) + ';end';
+    } else {
+      window.open('https://wa.me/' + (WA || '') + '?text=' + teks, '_blank');
+    }
   }
 
   function aturBayar() {
