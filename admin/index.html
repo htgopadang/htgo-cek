@@ -65,11 +65,17 @@
 
   <!-- ORDER BARU -->
   <div id="vBaru" class="hide">
-    <div class="card">
-      <h3>Tempel chat WA</h3>
-      <textarea id="chat" placeholder="Salin percakapan dengan penyewa dari WhatsApp, lalu tempel di sini"></textarea>
-      <button class="btn ai" id="btnAi" onclick="bacaChat(this)">Baca chat dengan AI</button>
-      <p class="hint">AI hanya mengisi form. Cek dulu sebelum menyimpan.</p>
+    <div id="bannerEdit" class="msg warn hide"></div>
+    <div class="card" id="boxChat">
+      <h3>Tempel chat WA / format cepat</h3>
+      <textarea id="chat" placeholder="Tempel chat WhatsApp, atau teks format cepat (Nama: …, Tanggal: …, Unit: …)"></textarea>
+      <button class="btn ai" id="btnAi" onclick="bacaChat(this)">Baca &amp; isi form</button>
+      <p class="hint">Teks format cepat langsung terbaca dalam 1 detik tanpa AI. Chat biasa dibaca AI (beberapa detik). Cek dulu sebelum menyimpan.</p>
+      <details><summary>Format cepat</summary>
+        <p class="hint">Salin perintah di bawah, tempel ke ChatGPT / Claude bersama chat penyewa, lalu tempel hasilnya ke kotak di atas. Bisa juga ketik sendiri formatnya.</p>
+        <button class="btn sec" type="button" onclick="salinFormat(true)">Salin perintah untuk ChatGPT / Claude</button>
+        <button class="btn sec" type="button" onclick="salinFormat(false)">Salin format kosong</button>
+      </details>
     </div>
     <div id="catatanAi"></div>
 
@@ -168,7 +174,7 @@
 </div>
 
 <nav id="nav" class="hide">
-  <button id="nBaru" onclick="buka('vBaru')">+ Order baru</button>
+  <button id="nBaru" onclick="orderBaru()">+ Order baru</button>
   <button id="nDaftar" onclick="buka('vDaftar')">Daftar order</button>
   <button id="nLaporan" onclick="buka('vLaporan')">Laporan</button>
 </nav>
@@ -182,7 +188,7 @@
   const rp = n => 'Rp' + Math.round(n || 0).toLocaleString('id-ID');
   const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   let KEY = localStorage.getItem('htgo_key') || '';
-  let F = null, ED = [], ORDERS = [], DET = null, SP = null, EDK = [];
+  let F = null, ED = [], ORDERS = [], DET = null, SP = null, EDK = [], EDIT = null;
 
   async function api(aksi, data, no) {
     const res = await fetch(API, {
@@ -241,8 +247,15 @@
     $('dpPersen').value = F.dpPersen; $('spGratis').value = F.spGratis; $('spDiskon').value = F.spDiskon;
     $('items').innerHTML = ''; tambahItem();
     $('catatanAi').innerHTML = ''; $('hasilHitung').innerHTML = ''; $('btnSimpan').disabled = true;
+    EDIT = null; $('jenis').disabled = false;
+    $('bannerEdit').classList.add('hide'); $('boxChat').classList.remove('hide');
     aturJenis(true);
     if (!diam) pesan('');
+  }
+  function orderBaru() {
+    if (EDIT && !confirm('Batalkan perubahan order ' + EDIT + '?')) return;
+    if (EDIT) kosongkan(true);
+    buka('vBaru');
   }
 
   function tambahItem(it) {
@@ -270,7 +283,7 @@
     $('boxPotongan').classList.toggle('hide', j !== 'Sponsorship');
     $('boxNego').classList.toggle('hide', sp);
     $('dpPersen').disabled = op;
-    $('btnSimpan').textContent = op ? 'Simpan & buat surat kerja sama' : 'Simpan & buat invoice';
+    $('btnSimpan').textContent = EDIT ? 'Simpan perubahan' : op ? 'Simpan & buat surat kerja sama' : 'Simpan & buat invoice';
     if (sp && (paksa === true || j !== jenisLalu)) { ED = JSON.parse(JSON.stringify(op ? F.benefitGratis : F.benefitSupporting)); renderEditor(); }
     jenisLalu = j; ubah();
   }
@@ -296,12 +309,20 @@
     d.items = [...document.querySelectorAll('#items .item')].map(x => ({ kode: x.querySelector('.u').value, qty: x.querySelector('.q').value, earpiece: x.querySelector('.e').checked }));
     d.sponsor = { jabatan: v('s_jabatan'), peserta: v('s_peserta') };
     d.benefit = d.jenis !== 'Sewa' ? ED : [];
+    if (EDIT) d.editNo = EDIT;
     return d;
   }
 
   async function bacaChat(btn) {
+    const lokal = bacaFormat(v('chat'));
+    if (lokal) { isiForm(lokal, 'Terisi dari format cepat. Cek ulang sebelum menyimpan.'); return; }
     await jalan(btn, async () => {
       const r = await api('bacaChat', { chat: v('chat') });
+      isiForm(r, 'Sudah diisi AI. Cek ulang sebelum menyimpan.');
+    });
+  }
+
+  function isiForm(r, judul) {
       $('jenis').value = r.jenis; aturJenis(true);
       ['nama', 'wa', 'event', 'area', 'mulai', 'selesai', 'hariOverride', 'catatanJadwal', 'alamat', 'ongkir', 'diskonNego', 'alasanDiskon'].forEach(i => $(i).value = r[i] || '');
       $('pengiriman').value = r.pengiriman;
@@ -311,12 +332,117 @@
       $('s_jabatan').value = r.sponsor.jabatan || ''; $('s_peserta').value = r.sponsor.peserta || '';
       $('items').innerHTML = '';
       (r.items.length ? r.items : [null]).forEach(it => tambahItem(it));
-      if (r.jenis !== 'Sewa' && r.benefit.length) { ED = r.benefit; renderEditor(); }
-      $('catatanAi').innerHTML = '<div class="msg warn"><b>Sudah diisi AI. Cek ulang sebelum menyimpan.</b>' +
-        (r.catatan.length ? '<br>• ' + r.catatan.map(esc).join('<br>• ') : '') + '</div>';
+      if (r.jenis !== 'Sewa' && r.benefit && r.benefit.length) { ED = r.benefit; renderEditor(); }
+      $('catatanAi').innerHTML = judul ? '<div class="msg warn"><b>' + esc(judul) + '</b>' +
+        (r.catatan && r.catatan.length ? '<br>• ' + r.catatan.map(esc).join('<br>• ') : '') + '</div>' : '';
       ubah();
-      $('catatanAi').scrollIntoView({ behavior: 'smooth' });
+      if (judul) $('catatanAi').scrollIntoView({ behavior: 'smooth' });
+  }
+
+  /* ---------- FORMAT CEPAT (dibaca langsung di HP, tanpa AI) ---------- */
+  function teksFormat() {
+    return 'Jenis: Sewa\nNama: \nWA: \nEvent: \nArea: Padang\nTanggal: \nUnit: \nPengiriman: Ambil sendiri\nAlamat: \nOngkir: \nDiskon: \nDP: ' + F.dpPersen;
+  }
+  function salinFormat(prompt) {
+    const unit = F.units.map(u => u.kode + ' = ' + u.nama).join('; ');
+    const t = prompt
+      ? 'Ubah chat WhatsApp penyewa HT di bawah menjadi PERSIS format berikut. Isi hanya dari chat; kosongkan jika tidak ada. Balas hanya formatnya, tanpa penjelasan.\n' +
+        '- Jenis: Sewa / Supporting Partner / Official Partner\n- Tanggal: contoh "18-20 Nov 2026" (berurutan) atau "18 & 21 Nov 2026" (tidak berurutan)\n' +
+        '- Unit: pakai kode, contoh "10 WLN, 2 TOA". Tulis "tanpa earpiece" jika tidak pakai earpiece. Kode unit: ' + unit + '\n' +
+        '- Pengiriman: Ambil sendiri / Diantar. Ongkir & Diskon dalam rupiah, alasan diskon di dalam kurung.\n' +
+        '- Untuk sponsor tambahkan baris: Unit gratis, Diskon unit lain (%), Jabatan, Peserta.\n\n' + teksFormat() + '\n\nCHAT:\n'
+      : teksFormat();
+    salinTeks(t);
+    if (!prompt && !v('chat').trim()) $('chat').value = teksFormat();
+    pesan(prompt ? 'Perintah disalin. Tempel di ChatGPT / Claude, lalu tempel chat penyewa di bawahnya.' : 'Format disalin.');
+  }
+
+  const BLN = { jan: 1, feb: 2, mar: 3, apr: 4, mei: 5, may: 5, jun: 6, jul: 7, agu: 8, aug: 8, ags: 8, sep: 9, okt: 10, oct: 10, nov: 11, des: 12, dec: 12 };
+  function iso(y, m, d) { return y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0'); }
+  function tahunDekat(m, d, y) {
+    if (y) return y < 100 ? 2000 + y : y;
+    const now = new Date(), t = new Date(now.getFullYear(), m - 1, d);
+    return t < new Date(now.getFullYear(), now.getMonth(), now.getDate() - 30) ? now.getFullYear() + 1 : now.getFullYear();
+  }
+  function bacaTanggal(s) {
+    const out = []; let rentang = /(-|–|s\.?\s?d|sampai|hingga)/i.test(s.replace(/\d{4}-\d{1,2}-\d{1,2}/g, ''));
+    let m, re = /(\d{4})-(\d{1,2})-(\d{1,2})/g;
+    while ((m = re.exec(s))) out.push(iso(+m[1], +m[2], +m[3]));
+    if (!out.length) {
+      re = /\b(\d{1,2})[\/.](\d{1,2})(?:[\/.](\d{2,4}))?\b/g;
+      while ((m = re.exec(s))) out.push(iso(tahunDekat(+m[2], +m[1], m[3] ? +m[3] : 0), +m[2], +m[1]));
+    }
+    if (!out.length) {
+      re = /((?:\d{1,2}\s*(?:-|–|&|,|dan|s\.?\s?d\.?|sampai|hingga)\s*)*\d{1,2})\s*([a-z]{3,})\.?(?:\s+(\d{4}))?/gi;
+      while ((m = re.exec(s))) {
+        const b = BLN[m[2].slice(0, 3).toLowerCase()]; if (!b) continue;
+        m[1].match(/\d{1,2}/g).forEach(d => out.push(iso(tahunDekat(b, +d, m[3] ? +m[3] : 0), b, +d)));
+      }
+    }
+    out.sort();
+    if (!out.length) return null;
+    const r = { mulai: out[0], selesai: out[out.length - 1] };
+    if (out.length > 2 || (!rentang && out.length === 2)) {
+      const hari = (new Date(r.selesai) - new Date(r.mulai)) / 864e5 + 1;
+      if (hari !== out.length) { r.hariOverride = out.length; r.catatanJadwal = s.trim(); }
+    }
+    return r;
+  }
+  function angka(s) {
+    s = String(s || '').toLowerCase().replace(/\s/g, '');
+    const m = s.match(/(\d+(?:[.,]\d+)*)(rb|ribu|k|jt|juta)?/); if (!m) return '';
+    let n = m[2] ? Number(m[1].replace(',', '.')) : Number(m[1].replace(/[.,]/g, ''));
+    if (m[2] === 'rb' || m[2] === 'ribu' || m[2] === 'k') n *= 1000;
+    if (m[2] === 'jt' || m[2] === 'juta') n *= 1e6;
+    return Math.round(n) || '';
+  }
+  function cariUnit(t) {
+    t = t.toLowerCase();
+    const kata = t.replace(/\b(ht|unit|pcs|buah|pakai|tanpa|dengan|plus|earpiece|ear|headset)\b/g, ' ').split(/[^a-z0-9]+/).filter(x => x.length >= 3);
+    return F.units.find(u => t.indexOf(u.kode.toLowerCase()) >= 0) ||
+      F.units.find(u => kata.some(k => u.nama.toLowerCase().indexOf(k) >= 0)) || null;
+  }
+  function bacaFormat(teks) {
+    const KEY = [['jenis', /^jenis/], ['nama', /^(nama|pj|penanggung)/], ['wa', /^(wa|no\.? ?wa|hp|no\.? ?hp|telp|telepon|kontak)/],
+      ['event', /^(event|acara|organisasi|kegiatan)/], ['area', /^(area|lokasi)/], ['mulai', /^(mulai|tgl mulai|tanggal mulai)/],
+      ['selesai', /^(selesai|tgl selesai|tanggal selesai)/], ['tanggal', /^(tanggal|tgl|jadwal pakai)/], ['hari', /^hari/],
+      ['jadwal', /^(catatan jadwal|jadwal)/], ['gratis', /^unit gratis/], ['dskSp', /^diskon unit/], ['unit', /^(unit|barang|ht)/], ['earpiece', /^earpiece/], ['pengiriman', /^(pengiriman|antar|kirim)/],
+      ['alamat', /^alamat/], ['ongkir', /^ongkir/], ['diskon', /^(diskon|potongan)/],
+      ['alasan', /^alasan/], ['dp', /^dp/], ['jabatan', /^jabatan/], ['peserta', /^peserta/]];
+    const f = {};
+    teks.split(/\r?\n/).forEach(b => {
+      const m = b.replace(/^[\s\-*•]+/, '').match(/^([A-Za-z .\/]{2,25}?)\s*[:=]\s*(.*)$/); if (!m) return;
+      const k = m[1].trim().toLowerCase(), isi = m[2].trim();
+      const hit = KEY.find(x => x[1].test(k));
+      if (hit && !(hit[0] in f)) f[hit[0]] = isi;
     });
+    if (Object.keys(f).length < 3 || !(f.unit || f.tanggal || f.mulai)) return null;
+
+    const catatan = [];
+    const jn = (f.jenis || '').toLowerCase();
+    const r = { jenis: /official/.test(jn) ? 'Official Partner' : /(support|sponsor)/.test(jn) ? 'Sponsorship' : 'Sewa',
+      nama: f.nama || '', wa: f.wa || '', event: f.event || '', area: f.area || '', alamat: f.alamat || '',
+      hariOverride: angka(f.hari), catatanJadwal: f.jadwal || '', ongkir: angka(f.ongkir), diskonNego: '', alasanDiskon: f.alasan || '',
+      dpPersen: angka(f.dp), spGratis: f.gratis !== undefined ? angka(f.gratis) : '', spDiskon: f.dskSp !== undefined ? angka(f.dskSp) : '',
+      sponsor: { jabatan: f.jabatan || '', peserta: angka(f.peserta) }, items: [], catatan: catatan };
+    if (f.diskon) { r.diskonNego = angka(f.diskon); const a = f.diskon.match(/\(([^)]+)\)/); if (a && !r.alasanDiskon) r.alasanDiskon = a[1]; }
+    const t = bacaTanggal(f.tanggal || [f.mulai, f.selesai].filter(Boolean).join(' - ')) || {};
+    r.mulai = t.mulai || ''; r.selesai = t.selesai || '';
+    if (t.hariOverride && !r.hariOverride) r.hariOverride = t.hariOverride;
+    if (t.catatanJadwal && !r.catatanJadwal) r.catatanJadwal = t.catatanJadwal;
+    if (!r.mulai) catatan.push('Tanggal tidak terbaca, isi manual.');
+    const p = (f.pengiriman || '').toLowerCase();
+    r.pengiriman = /(antar|kirim|ya)/.test(p) && !/ambil/.test(p) ? 'Diantar' : 'Ambil sendiri';
+    if (r.pengiriman === 'Diantar' && !r.alamat) { const a = f.pengiriman.replace(/^(di)?antar(kan)?\s*(ke)?\s*/i, '').trim(); if (a) r.alamat = a; }
+    const tanpaEar = /^(tidak|tanpa|no|ga)/i.test(f.earpiece || '');
+    (f.unit || '').split(/,|;|\bdan\b|\n/i).map(x => x.trim()).filter(Boolean).forEach(x => {
+      const q = (x.match(/\d+/) || [0])[0];
+      const u = cariUnit(x.replace(/\d+/, ''));
+      if (!u || !(+q > 0)) { catatan.push('Unit "' + x + '" tidak dikenali, isi manual.'); return; }
+      r.items.push({ kode: u.kode, qty: +q, earpiece: !(tanpaEar || /tanpa\s*(ear|headset)/i.test(x)) });
+    });
+    if (!r.items.length) catatan.push('Unit belum terisi.');
+    return r;
   }
 
   async function hitung(btn) {
@@ -340,6 +466,7 @@
   }
 
   async function simpan(btn) {
+    if (EDIT) return simpanUbah(btn);
     await jalan(btn, async () => {
       const r = await api('simpan', kumpulkan());
       const link = r.url ? dokLink(r.nama, r.url) : '';
@@ -350,6 +477,38 @@
     });
     $('btnSimpan').disabled = true;
   }
+
+  async function simpanUbah(btn) {
+    await jalan(btn, async () => {
+      const no = EDIT;
+      const r = await api('ubahOrder', kumpulkan(), no);
+      ORDERS = await api('daftar');
+      kosongkan(true);
+      await bukaDetail(no, true);
+      pesan(esc(r.pesan) + (r.url ? '<br>' + dokLink(r.nama, r.url) : ''), 'ok', true);
+    });
+  }
+
+  async function mulaiUbah(btn) {
+    await jalan(btn, async () => {
+      const r = await api('dataEdit', null, DET.no);
+      kosongkan(true);
+      EDIT = r.no;
+      isiForm(r, '');
+      $('jenis').disabled = true;
+      $('dpPersen').value = r.dpPersen;
+      if (r.jenis !== 'Sewa' && r.benefit.length) { ED = r.benefit.map(b => Object.assign({}, b)); renderEditor(); }
+      $('boxChat').classList.add('hide');
+      $('bannerEdit').innerHTML = '<b>Mengubah order ' + esc(r.no) + '</b> (' + esc(r.status) + ')<br>Ubah yang perlu, tekan <b>Hitung</b>, lalu <b>Simpan perubahan</b>. Nomor order tetap sama; invoice/surat dibuat ulang sebagai revisi.' +
+        (r.dpBayar ? '<br>DP sudah dibayar ' + rp(r.dpBayar) + '.' : '') + (r.kunciBenefit ? '<br>Daftar benefit dikunci (tagihan selisih sudah dibuat).' : '') +
+        '<br><a href="#" onclick="batalUbah(); return false;">Batal ubah</a>';
+      $('bannerEdit').classList.remove('hide');
+      aturJenis();
+      tampilkan('vBaru'); $('nBaru').classList.add('on'); $('nDaftar').classList.remove('on');
+      window.scrollTo(0, 0);
+    });
+  }
+  function batalUbah() { const no = EDIT; kosongkan(true); bukaDetail(no); }
 
   function dokLink(nama, url) {
     return '<div class="dok" style="margin:6px 0"><b style="font-size:14px">' + esc(nama) + '</b><br>' +
@@ -487,7 +646,9 @@
     // sponsorship
     if (SP) h += renderSponsor();
 
-    if (belum || st === 'DP Diterima') h += '<button class="btn del" onclick="batal(this)">Batalkan order</button>';
+    if (belum || st === 'DP Diterima') h += '<button class="btn sec" onclick="mulaiUbah(this)">Ubah order (tanggal, unit, antar, dll.)</button>' +
+      '<button class="btn del" onclick="batal(this)">Batalkan order</button>';
+    if (st === 'Batal') h += '<button class="btn pri" onclick="if (confirm(\'Aktifkan kembali order ini? Nomor order tetap sama.\')) aksi(\'aktifkanKembali\', null, this)">Aktifkan kembali order</button>';
     $('detail').innerHTML = h;
     if (belum || st === 'DP Diterima') aturBayar();
     if (SP && $('editorK')) renderEditorK();
@@ -587,8 +748,10 @@
     try {
       const ag = await api('agenda');
       $('agenda').innerHTML = ag.length ? '<div class="card" style="border-left:4px solid var(--kuning)"><h3>Agenda hari ini</h3>' +
-        ag.map(b => '<b style="font-size:13px">' + esc(b.judul) + '</b><ul style="margin:4px 0 10px;padding-left:18px;font-size:13px">' +
-          b.isi.map(x => '<li>' + esc(x) + '</li>').join('') + '</ul>').join('') + '</div>' : '';
+        ag.map(b => '<div style="font-size:13px;font-weight:bold;margin:12px 0 6px">' + b.ikon + ' ' + esc(b.judul) + ' (' + b.isi.length + ')</div>' +
+          b.isi.map(x => '<div class="ben" style="font-size:13px;line-height:1.45"><b>' + esc(x.judul) + '</b>' +
+            (x.status ? ' <span class="badge ' + (x.penting ? 'b-Batal' : 'b-Menunggu') + '">' + esc(x.status) + '</span>' : '') + '<br>' +
+            x.baris.map(esc).join('<br>') + '<div class="hint">' + esc(x.ref) + '</div></div>').join('')).join('') + '</div>' : '';
     } catch (e) { /* abaikan */ }
   }
 
@@ -610,13 +773,20 @@
   async function lihatLaporan(btn) {
     await jalan(btn, async () => {
       const r = await api('laporanRingkas', periode());
+      const I = r.invoice;
       $('lapHasil').innerHTML = '<div class="card"><h3>' + esc(r.label) + '</h3><table>' +
-        '<tr><td>Pendapatan diterima</td><td><b>' + rp(r.pendapatan) + '</b>' + persen(r.perubahan.pendapatan) + '</td></tr>' +
-        '<tr><td>Nilai order</td><td>' + rp(r.nilaiOrder) + '</td></tr>' +
-        '<tr><td>Jumlah order</td><td>' + r.jumlahOrder + persen(r.perubahan.order) + '</td></tr>' +
+        '<tr><td>Kas masuk</td><td><b>' + rp(r.kasMasuk) + '</b>' + persen(r.perubahan.kas) + '</td></tr>' +
+        '<tr><td>Order terkonfirmasi</td><td>' + r.jumlahOrder + persen(r.perubahan.order) + '</td></tr>' +
+        '<tr><td>Nilai order terkonfirmasi</td><td>' + rp(r.nilaiOrder) + '</td></tr>' +
         '<tr><td>Unit-hari tersewa</td><td>' + r.unitHari + persen(r.perubahan.unitHari) + '</td></tr>' +
-        '<tr><td>Belum dilunasi</td><td>' + rp(r.totalSisa) + '</td></tr>' +
-        '<tr><td>Nilai sponsorship</td><td>' + rp(r.nilaiSponsor) + '</td></tr></table>' +
+        '<tr><td>Piutang</td><td>' + rp(r.totalPiutang) + '</td></tr>' +
+        (r.nilaiSponsor ? '<tr><td>Nilai sponsorship</td><td>' + rp(r.nilaiSponsor) + '</td></tr>' : '') + '</table>' +
+        '<h3 style="margin-top:14px">Invoice dibuat periode ini</h3><table>' +
+        '<tr><td>Jadi (sudah DP / lunas)</td><td>' + I.jadi + '</td></tr>' +
+        '<tr><td>Batal</td><td>' + I.batal + '</td></tr>' +
+        '<tr><td>Masih menunggu DP</td><td>' + I.tunggu + (I.nilaiTunggu ? ' <span class="hint">(' + rp(I.nilaiTunggu) + ')</span>' : '') + '</td></tr>' +
+        '<tr class="tot"><td>Tingkat jadi</td><td>' + (I.konversi === null ? '–' : I.konversi + '%') + '</td></tr></table>' +
+        '<p class="hint">Invoice yang belum DP dan order batal tidak dihitung sebagai order.</p>' +
         (r.insight.length ? '<ul style="padding-left:18px;font-size:13px;margin:10px 0 0">' + r.insight.map(x => '<li style="margin-bottom:4px">' + esc(x) + '</li>').join('') + '</ul>' : '') +
         '<button class="btn pri" onclick="pdfLaporan(this, false)">Buat PDF laporan lengkap</button>' +
         '<button class="btn sec" onclick="pdfLaporan(this, true)">Buat & kirim PDF ke Telegram</button><div id="lapPdf"></div></div>';
