@@ -264,10 +264,25 @@
     d.innerHTML = '<select class="u" onchange="aturEar(this)">' + F.units.map(u => '<option value="' + u.kode + '">' + esc(u.nama) + ' (' + rp(u.harga) + ')</option>').join('') + '</select>' +
       '<input class="q" type="number" min="1" value="1" inputmode="numeric">' +
       '<button class="x" type="button" onclick="this.parentElement.remove(); ubah()">&times;</button>' +
-      '<label class="ear"><input type="checkbox" class="e" checked onchange="ubah()"> <span></span></label>';
+      '<label class="ear"><input type="checkbox" class="e" checked onchange="ubah()"> <span></span></label>' +
+      '<a href="#" class="sesiLink" style="grid-column:1/-1;font-size:13px;color:#1D4ED8" onclick="bukaSesi(this.parentElement); return false;">+ Tanggal khusus untuk unit ini (jadwal per sesi)</a>' +
+      '<div class="sesiBox hide" style="grid-column:1/-1"><div class="grid"><div><input class="s" placeholder="Nama sesi, mis. Futsal"></div>' +
+      '<div><input class="t" placeholder="Tanggal, mis. 21, 22, 28 Nov" oninput="cekSesi(this.closest(\'.item\'))"></div></div><div class="hint th"></div></div>';
     $('items').appendChild(d);
-    if (it) { d.querySelector('.u').value = it.kode; d.querySelector('.q').value = it.qty; d.querySelector('.e').checked = it.earpiece !== false; }
+    if (it) {
+      d.querySelector('.u').value = it.kode; d.querySelector('.q').value = it.qty; d.querySelector('.e').checked = it.earpiece !== false;
+      if (it.tanggal && it.tanggal.length) {
+        d.querySelector('.s').value = it.sesi || '';
+        d.querySelector('.t').value = it.tanggalTeks || it.tanggal.map(t => t.slice(8, 10) + '/' + t.slice(5, 7) + '/' + t.slice(0, 4)).join(', ');
+        bukaSesi(d);
+      }
+    }
     aturEar(d.querySelector('.u'));
+  }
+  function bukaSesi(d) { d.querySelector('.sesiBox').classList.remove('hide'); d.querySelector('.sesiLink').classList.add('hide'); cekSesi(d); }
+  function cekSesi(d) {
+    const tg = daftarTanggal(d.querySelector('.t').value);
+    d.querySelector('.th').textContent = tg.length ? tg.length + ' hari: ' + tg.map(t => +t.slice(8, 10) + '/' + +t.slice(5, 7)).join(', ') : 'Kosongkan jika unit ini dipakai di periode utama.';
   }
   function aturEar(sel) {
     const u = F.units.find(x => x.kode === sel.value), d = sel.parentElement, cb = d.querySelector('.e'), sp = d.querySelector('.ear span');
@@ -306,7 +321,10 @@
     const d = {};
     ['jenis', 'dpPersen', 'nama', 'wa', 'event', 'area', 'mulai', 'selesai', 'hariOverride', 'catatanJadwal', 'pengiriman',
       'ongkir', 'alamat', 'diskonNego', 'alasanDiskon', 'spGratis', 'spDiskon'].forEach(i => d[i] = v(i));
-    d.items = [...document.querySelectorAll('#items .item')].map(x => ({ kode: x.querySelector('.u').value, qty: x.querySelector('.q').value, earpiece: x.querySelector('.e').checked }));
+    d.items = [...document.querySelectorAll('#items .item')].map(x => ({ kode: x.querySelector('.u').value, qty: x.querySelector('.q').value, earpiece: x.querySelector('.e').checked,
+      sesi: x.querySelector('.s').value.trim(), tanggal: daftarTanggal(x.querySelector('.t').value) }));
+    const semua = [].concat(...d.items.map(i => i.tanggal)).sort();
+    if (semua.length) { if (!d.mulai) d.mulai = semua[0]; if (!d.selesai) d.selesai = semua[semua.length - 1]; }
     d.sponsor = { jabatan: v('s_jabatan'), peserta: v('s_peserta') };
     d.benefit = d.jenis !== 'Sewa' ? ED : [];
     if (EDIT) d.editNo = EDIT;
@@ -316,9 +334,15 @@
   async function bacaChat(btn) {
     const lokal = bacaFormat(v('chat'));
     if (lokal) { isiForm(lokal, 'Terisi dari format cepat. Cek ulang sebelum menyimpan.'); return; }
+    $('catatanAi').innerHTML = '';
     await jalan(btn, async () => {
-      const r = await api('bacaChat', { chat: v('chat') });
-      isiForm(r, 'Sudah diisi AI. Cek ulang sebelum menyimpan.');
+      try {
+        const r = await api('bacaChat', { chat: v('chat') });
+        isiForm(r, 'Sudah diisi AI. Cek ulang sebelum menyimpan.');
+      } catch (e) {
+        $('catatanAi').innerHTML = '<div class="msg err"><b>Chat belum terbaca.</b><br>' + esc(e.message) + '<br><br>Alternatif: buka "Format cepat" di atas, atau isi form manual.</div>';
+        $('catatanAi').scrollIntoView({ behavior: 'smooth' });
+      }
     });
   }
 
@@ -332,6 +356,8 @@
       $('s_jabatan').value = r.sponsor.jabatan || ''; $('s_peserta').value = r.sponsor.peserta || '';
       $('items').innerHTML = '';
       (r.items.length ? r.items : [null]).forEach(it => tambahItem(it));
+      const semua = [].concat(...r.items.map(i => i.tanggal || [])).sort();
+      if (semua.length) { if (!$('mulai').value) $('mulai').value = semua[0]; if (!$('selesai').value) $('selesai').value = semua[semua.length - 1]; }
       if (r.jenis !== 'Sewa' && r.benefit && r.benefit.length) { ED = r.benefit; renderEditor(); }
       $('catatanAi').innerHTML = judul ? '<div class="msg warn"><b>' + esc(judul) + '</b>' +
         (r.catatan && r.catatan.length ? '<br>• ' + r.catatan.map(esc).join('<br>• ') : '') + '</div>' : '';
@@ -349,6 +375,8 @@
       ? 'Ubah chat WhatsApp penyewa HT di bawah menjadi PERSIS format berikut. Isi hanya dari chat; kosongkan jika tidak ada. Balas hanya formatnya, tanpa penjelasan.\n' +
         '- Jenis: Sewa / Supporting Partner / Official Partner\n- Tanggal: contoh "18-20 Nov 2026" (berurutan) atau "18 & 21 Nov 2026" (tidak berurutan)\n' +
         '- Unit: pakai kode, contoh "10 WLN, 2 TOA". Tulis "tanpa earpiece" jika tidak pakai earpiece. Kode unit: ' + unit + '\n' +
+        '- Jika jumlah unit berbeda per tanggal (beberapa sesi), kosongkan "Tanggal" dan tulis Unit per baris:\n  Unit:\n  - Opening (16 Nov 2026): 10 WLN\n  - Futsal (21, 22, 28, 29 Nov & 6 Des 2026): 5 WLN\n' +
+        '- Pakai kesepakatan TERAKHIR di chat (koreksi menggantikan info sebelumnya).\n' +
         '- Pengiriman: Ambil sendiri / Diantar. Ongkir & Diskon dalam rupiah, alasan diskon di dalam kurung.\n' +
         '- Untuk sponsor tambahkan baris: Unit gratis, Diskon unit lain (%), Jabatan, Peserta.\n\n' + teksFormat() + '\n\nCHAT:\n'
       : teksFormat();
@@ -388,6 +416,23 @@
     }
     return r;
   }
+  /** Semua tanggal dalam teks, rentang diuraikan: "21, 22, 28 Nov & 3-5 Des" -> [2026-11-21, ..., 2026-12-05] */
+  function daftarTanggal(s) {
+    s = String(s || ''); const out = {}; let m, re;
+    re = /(\d{4})-(\d{1,2})-(\d{1,2})/g; while ((m = re.exec(s))) out[iso(+m[1], +m[2], +m[3])] = 1;
+    re = /\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/g; while ((m = re.exec(s))) out[iso(tahunDekat(+m[2], +m[1], m[3] ? +m[3] : 0), +m[2], +m[1])] = 1;
+    re = /((?:\d{1,2}\s*(?:-|–|&|,|dan|s\.?\s?d\.?|sampai|hingga)\s*)*\d{1,2})\s*([a-z]{3,})\.?(?:\s+(\d{4}))?/gi;
+    while ((m = re.exec(s))) {
+      const b = BLN[m[2].slice(0, 3).toLowerCase()]; if (!b) continue;
+      const tok = m[1].split(/\s*(-|–|s\.?\s?d\.?|sampai|hingga|&|,|dan)\s*/i);
+      for (let i = 0; i < tok.length; i += 2) {
+        const d = +tok[i], rentang = i >= 2 && /^(-|–|s|sampai|hingga)/i.test(tok[i - 1]);
+        const awal = rentang ? +tok[i - 2] + 1 : d;
+        for (let x = awal; x <= d; x++) out[iso(tahunDekat(b, x, m[3] ? +m[3] : 0), b, x)] = 1;
+      }
+    }
+    return Object.keys(out).sort();
+  }
   function angka(s) {
     s = String(s || '').toLowerCase().replace(/\s/g, '');
     const m = s.match(/(\d+(?:[.,]\d+)*)(rb|ribu|k|jt|juta)?/); if (!m) return '';
@@ -409,14 +454,17 @@
       ['jadwal', /^(catatan jadwal|jadwal)/], ['gratis', /^unit gratis/], ['dskSp', /^diskon unit/], ['unit', /^(unit|barang|ht)/], ['earpiece', /^earpiece/], ['pengiriman', /^(pengiriman|antar|kirim)/],
       ['alamat', /^alamat/], ['ongkir', /^ongkir/], ['diskon', /^(diskon|potongan)/],
       ['alasan', /^alasan/], ['dp', /^dp/], ['jabatan', /^jabatan/], ['peserta', /^peserta/]];
-    const f = {};
+    const f = {}, unitBaris = [];
+    let dalamUnit = false;
     teks.split(/\r?\n/).forEach(b => {
-      const m = b.replace(/^[\s\-*•]+/, '').match(/^([A-Za-z .\/]{2,25}?)\s*[:=]\s*(.*)$/); if (!m) return;
-      const k = m[1].trim().toLowerCase(), isi = m[2].trim();
-      const hit = KEY.find(x => x[1].test(k));
-      if (hit && !(hit[0] in f)) f[hit[0]] = isi;
+      if (!b.trim()) return;
+      const m = b.replace(/^[\s\-*•]+/, '').match(/^([A-Za-z .\/]{2,25}?)\s*[:=]\s*(.*)$/);
+      const hit = m && KEY.find(x => x[1].test(m[1].trim().toLowerCase()));
+      if (!hit) { if (dalamUnit) unitBaris.push(b); return; }
+      dalamUnit = hit[0] === 'unit' && !m[2].trim();
+      if (!(hit[0] in f)) f[hit[0]] = m[2].trim();
     });
-    if (Object.keys(f).length < 3 || !(f.unit || f.tanggal || f.mulai)) return null;
+    if (Object.keys(f).length < 3 || !('unit' in f || f.tanggal || f.mulai)) return null;
 
     const catatan = [];
     const jn = (f.jenis || '').toLowerCase();
@@ -435,12 +483,23 @@
     r.pengiriman = /(antar|kirim|ya)/.test(p) && !/ambil/.test(p) ? 'Diantar' : 'Ambil sendiri';
     if (r.pengiriman === 'Diantar' && !r.alamat) { const a = f.pengiriman.replace(/^(di)?antar(kan)?\s*(ke)?\s*/i, '').trim(); if (a) r.alamat = a; }
     const tanpaEar = /^(tidak|tanpa|no|ga)/i.test(f.earpiece || '');
-    (f.unit || '').split(/,|;|\bdan\b|\n/i).map(x => x.trim()).filter(Boolean).forEach(x => {
+    const tambahUnit = (teksUnit, sesi, tanggal) => teksUnit.split(/,|;|\bdan\b/i).map(x => x.trim()).filter(Boolean).forEach(x => {
       const q = (x.match(/\d+/) || [0])[0];
-      const u = cariUnit(x.replace(/\d+/, ''));
+      let u = cariUnit(x.replace(/\d+/, ''));
+      if (!u && !/[a-z]{3,}/i.test(x.replace(/\b(unit|ht|pcs|buah)\b/gi, ''))) { u = F.units[0]; catatan.push('Jenis HT tidak disebut, dipilih ' + u.nama + '.'); }
       if (!u || !(+q > 0)) { catatan.push('Unit "' + x + '" tidak dikenali, isi manual.'); return; }
-      r.items.push({ kode: u.kode, qty: +q, earpiece: !(tanpaEar || /tanpa\s*(ear|headset)/i.test(x)) });
+      r.items.push({ kode: u.kode, qty: +q, earpiece: !(tanpaEar || /tanpa\s*(ear|headset)/i.test(x)), sesi: sesi || '', tanggal: tanggal || [] });
     });
+    if (f.unit) tambahUnit(f.unit);
+    unitBaris.forEach(b => {   // jadwal per sesi: "- Futsal (21, 22, 28 Nov & 6 Des): 5 WLN"
+      const ln = b.replace(/^\s*[-*•]\s*|^\s*\d+[.)]\s+/, '').trim(), i = ln.lastIndexOf(':');
+      const kiri = i > 0 ? ln.slice(0, i) : '', kanan = i > 0 ? ln.slice(i + 1) : ln;
+      const tanggal = daftarTanggal(kiri);
+      const sesi = (kiri.match(/\(/) ? kiri.replace(/\(.*?\)/g, '') : kiri.replace(/\d+|\b(jan|feb|mar|apr|mei|jun|jul|agu|ags|aug|sep|okt|oct|nov|des|dec)[a-z]*\b|&|,|-|–|\bdan\b/gi, '')).replace(/\s+/g, ' ').trim();
+      tambahUnit(kanan.replace(/\.$/, ''), sesi, tanggal);
+    });
+    const semua = [].concat(...r.items.map(i => i.tanggal)).sort();
+    if (semua.length && !r.mulai) { r.mulai = semua[0]; r.selesai = semua[semua.length - 1]; const k = catatan.indexOf('Tanggal tidak terbaca, isi manual.'); if (k >= 0) catatan.splice(k, 1); }
     if (!r.items.length) catatan.push('Unit belum terisi.');
     return r;
   }
@@ -450,7 +509,10 @@
       const r = await api('preview', kumpulkan());
       const op = v('jenis') === 'Official Partner';
       let h = '<div class="card"><h3>Rincian</h3><table>';
-      r.baris.forEach(b => { h += '<tr><td>' + esc(b.nama) + ' × ' + b.qty + ' × ' + r.hari + ' hr</td><td>' + rp(b.jumlah) + '</td></tr>'; });
+      r.baris.forEach(b => { h += '<tr><td>' + esc(b.nama) + ' × ' + b.qty + ' × ' + (b.hari || r.hari) + ' hr' +
+        (b.jadwal ? '<br><span class="hint">' + esc((b.sesi ? b.sesi + ': ' : '') + b.jadwal) + '</span>' : '') + '</td><td>' + rp(b.jumlah) + '</td></tr>'; });
+      if (r.mulai && r.mulai !== v('mulai')) $('mulai').value = r.mulai;
+      if (r.selesai && r.selesai !== v('selesai')) $('selesai').value = r.selesai;
       h += '<tr><td>Subtotal</td><td>' + rp(r.subtotal) + '</td></tr>';
       if (r.ongkir) h += '<tr><td>Ongkir</td><td>' + rp(r.ongkir) + '</td></tr>';
       if (r.diskonOtomatis) h += '<tr><td>' + esc(r.keterangan) + '</td><td>-' + rp(r.diskonOtomatis) + '</td></tr>';
